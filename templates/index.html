@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AWS Services Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <header class="page-header">
+    <div class="header-title">
+      <h1><i data-lucide="layout-dashboard" class="title-icon"></i>AWS Services Dashboard</h1>
+      <p>Read-only resource scan using boto3 APIs</p>
+    </div>
+    <form method="get" action="/" id="region-form" class="toolbar">
+      <div class="toolbar-group">
+        <label for="region">Region</label>
+        <input type="text" id="region" name="region" value="{{ data.region }}" placeholder="us-east-1" />
+        <button type="submit" id="refresh-btn">Refresh</button>
+      </div>
+    </form>
+  </header>
+
+  <section class="meta">
+    <span id="last-scan" title="{{ data.last_scan }}">Last scan: just now</span>
+    {% if data.errors %}
+    <span class="warning">Some services failed to scan: {{ data.errors | length }}</span>
+    {% endif %}
+  </section>
+
+  <section class="summary-wrap">
+    <section class="risk-indicator risk-{{ data.cost_risk }}">
+      {% if data.cost_risk == "high" %}
+      <span>🔴 High Cost Risk</span>
+      {% elif data.cost_risk == "medium" %}
+      <span>🟡 Medium Cost Risk</span>
+      {% else %}
+      <span>🟢 Low Cost Risk</span>
+      {% endif %}
+    </section>
+
+    <section class="summary-grid">
+      <article class="card {% if data.summary.total_ec2_running > 0 %}card-active{% else %}card-empty{% endif %}">
+        <h3>EC2 Running</h3>
+        <p>{{ data.summary.total_ec2_running }}</p>
+        <span class="status-label">{% if data.summary.total_ec2_running > 0 %}Active{% else %}No resources{% endif %}</span>
+      </article>
+      <article class="card {% if data.summary.total_rds > 0 %}card-active{% else %}card-empty{% endif %}">
+        <h3>RDS Instances</h3>
+        <p>{{ data.summary.total_rds }}</p>
+        <span class="status-label">{% if data.summary.total_rds > 0 %}Active{% else %}No resources{% endif %}</span>
+      </article>
+      <article class="card {% if data.summary.total_lambda > 0 %}card-active{% else %}card-empty{% endif %}">
+        <h3>Lambda Functions</h3>
+        <p>{{ data.summary.total_lambda }}</p>
+        <span class="status-label">{% if data.summary.total_lambda > 0 %}Active{% else %}No resources{% endif %}</span>
+      </article>
+      <article class="card {% if data.summary.total_ecs_services > 0 %}card-active{% else %}card-empty{% endif %}">
+        <h3>ECS Services</h3>
+        <p>{{ data.summary.total_ecs_services }}</p>
+        <span class="status-label">{% if data.summary.total_ecs_services > 0 %}Active{% else %}No resources{% endif %}</span>
+      </article>
+      <article class="card {% if data.summary.total_s3_buckets > 0 %}card-active{% else %}card-empty{% endif %}">
+        <h3>S3 Buckets</h3>
+        <p>{{ data.summary.total_s3_buckets }}</p>
+        <span class="status-label">{% if data.summary.total_s3_buckets > 0 %}Active{% else %}No resources{% endif %}</span>
+      </article>
+      <article class="card {% if data.summary.total_lightsail_instances > 0 %}card-active{% else %}card-empty{% endif %}">
+        <h3>Lightsail Instances</h3>
+        <p>{{ data.summary.total_lightsail_instances }}</p>
+        <span class="status-label">{% if data.summary.total_lightsail_instances > 0 %}Active{% else %}No resources{% endif %}</span>
+      </article>
+    </section>
+  </section>
+
+  <section class="charts-grid">
+    <div class="panel chart-panel">
+      <h2><i data-lucide="pie-chart" class="title-icon"></i>Service Distribution</h2>
+      <canvas id="serviceChart"></canvas>
+    </div>
+    <div class="panel chart-panel">
+      <h2><i data-lucide="globe" class="title-icon"></i>Lightsail State Distribution</h2>
+      <canvas id="lightsailStateChart"></canvas>
+      <p class="chart-empty hidden" id="lightsailChartEmpty">No data available for this service</p>
+    </div>
+    <div class="panel chart-panel">
+      <h2><i data-lucide="server" class="title-icon"></i>EC2 State Distribution</h2>
+      <canvas id="ec2StateChart"></canvas>
+      <p class="chart-empty hidden" id="ec2ChartEmpty">No data available for this service</p>
+    </div>
+    <div class="panel chart-panel">
+      <h2><i data-lucide="bolt" class="title-icon"></i>Lambda Runtime Distribution</h2>
+      <canvas id="lambdaRuntimeChart"></canvas>
+      <p class="chart-empty hidden" id="lambdaChartEmpty">No data available for this service</p>
+    </div>
+    <div class="panel chart-panel">
+      <h2><i data-lucide="layers" class="title-icon"></i>ECS Status Distribution</h2>
+      <canvas id="ecsStatusChart"></canvas>
+      <p class="chart-empty hidden" id="ecsChartEmpty">No data available for this service</p>
+    </div>
+  </section>
+
+  <section class="tables-grid">
+    <section class="panel">
+      <h2><i data-lucide="server" class="title-icon"></i>EC2 <span class="scope-label">(Regional)</span></h2>
+      <table>
+        <thead>
+          <tr><th>Instance ID</th><th>Type</th><th>State</th><th>Region</th></tr>
+        </thead>
+        <tbody>
+          {% for item in data.ec2 %}
+          <tr>
+            <td>{{ item.instance_id }}</td>
+            <td>{{ item.instance_type }}</td>
+            <td>{{ item.state }}</td>
+            <td>{{ item.region }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4">No EC2 instances running in this region</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2><i data-lucide="database" class="title-icon"></i>RDS <span class="scope-label">(Regional)</span></h2>
+      <table>
+        <thead>
+          <tr><th>DB Identifier</th><th>Engine</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          {% for item in data.rds %}
+          <tr>
+            <td>{{ item.db_identifier }}</td>
+            <td>{{ item.engine }}</td>
+            <td>{{ item.status }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3">No RDS instances in this region</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2><i data-lucide="sparkles" class="title-icon"></i>Lambda <span class="scope-label">(Regional)</span></h2>
+      <table>
+        <thead>
+          <tr><th>Function Name</th><th>Runtime</th></tr>
+        </thead>
+        <tbody>
+          {% for item in data.lambda %}
+          <tr>
+            <td>{{ item.function_name }}</td>
+            <td>{{ item.runtime }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="2">No Lambda functions in this region</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2><i data-lucide="activity" class="title-icon"></i>ECS <span class="scope-label">(Regional)</span></h2>
+      <table>
+        <thead>
+          <tr><th>Cluster</th><th>Service</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          {% for item in data.ecs %}
+          <tr>
+            <td>{{ item.cluster_name }}</td>
+            <td>{{ item.service_name }}</td>
+            <td>{{ item.status }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3">No ECS services in this region</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2><i data-lucide="paint-bucket" class="title-icon"></i>S3 <span class="scope-label">(Global)</span></h2>
+      <table>
+        <thead>
+          <tr><th>Bucket Name</th></tr>
+        </thead>
+        <tbody>
+          {% for item in data.s3 %}
+          <tr>
+            <td>{{ item.bucket_name }}</td>
+          </tr>
+          {% else %}
+          <tr><td>No S3 buckets available in this account</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2><i data-lucide="globe" class="title-icon"></i>Lightsail <span class="scope-label">(Region-specific)</span></h2>
+      <table>
+        <thead>
+          <tr><th>Instance Name</th><th>Blueprint</th><th>Bundle</th><th>State</th></tr>
+        </thead>
+        <tbody>
+          {% for item in data.lightsail %}
+          <tr>
+            <td>{{ item.name }}</td>
+            <td>{{ item.blueprint }}</td>
+            <td>{{ item.bundle }}</td>
+            <td>{{ item.state }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4">No Lightsail instances in this region</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </section>
+
+  {% if data.errors %}
+  <section class="panel warning-panel">
+    <h2><i data-lucide="alert-triangle" class="title-icon"></i>Scan Errors</h2>
+    <ul>
+      {% for error in data.errors %}
+      <li><strong>{{ error.service }}</strong>: {{ error.message }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <div id="loading" class="loading hidden">Scanning AWS resources...</div>
+
+  <script id="scan-data" type="application/json">{{ data | tojson }}</script>
+  <script>
+    const scanData = JSON.parse(document.getElementById("scan-data").textContent);
+
+    function groupCounts(items, key) {
+      if (!Array.isArray(items)) return {};
+      return items.reduce((acc, item) => {
+        const groupKey = item[key] || "unknown";
+        acc[groupKey] = (acc[groupKey] || 0) + 1;
+        return acc;
+      }, {});
+    }
+
+    function renderOrEmpty(canvasId, emptyId, configFactory) {
+      const canvas = document.getElementById(canvasId);
+      const emptyEl = document.getElementById(emptyId);
+      const chartConfig = configFactory();
+      const values = chartConfig.data.datasets[0].data || [];
+      const hasData = values.some((v) => Number(v) > 0);
+
+      if (!hasData) {
+        canvas.classList.add("hidden");
+        emptyEl.classList.remove("hidden");
+        return;
+      }
+
+      new Chart(canvas, chartConfig);
+    }
+
+    const serviceChart = document.getElementById("serviceChart");
+    new Chart(serviceChart, {
+      type: "pie",
+      data: {
+        labels: ["EC2", "RDS", "Lambda", "ECS", "S3", "Lightsail"],
+        datasets: [{
+          data: [
+            scanData.ec2.length,
+            scanData.rds.length,
+            scanData.lambda.length,
+            scanData.ecs.length,
+            scanData.s3.length,
+            scanData.lightsail.length
+          ],
+        }]
+      },
+      options: { maintainAspectRatio: false }
+    });
+
+    const lightsailStates = groupCounts(scanData.lightsail, "state");
+    renderOrEmpty("lightsailStateChart", "lightsailChartEmpty", () => ({
+      type: "bar",
+      data: {
+        labels: Object.keys(lightsailStates),
+        datasets: [{ label: "Lightsail Instances", data: Object.values(lightsailStates) }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+      }
+    }));
+
+    const ec2States = scanData.ec2_state_counts || {};
+    renderOrEmpty("ec2StateChart", "ec2ChartEmpty", () => ({
+      type: "bar",
+      data: {
+        labels: Object.keys(ec2States),
+        datasets: [{ label: "EC2 Instances", data: Object.values(ec2States) }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+      }
+    }));
+
+    const lambdaRuntimes = groupCounts(scanData.lambda, "runtime");
+    renderOrEmpty("lambdaRuntimeChart", "lambdaChartEmpty", () => ({
+      type: "bar",
+      data: {
+        labels: Object.keys(lambdaRuntimes),
+        datasets: [{ label: "Lambda Functions", data: Object.values(lambdaRuntimes) }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+      }
+    }));
+
+    const ecsStates = groupCounts(scanData.ecs, "status");
+    renderOrEmpty("ecsStatusChart", "ecsChartEmpty", () => ({
+      type: "bar",
+      data: {
+        labels: Object.keys(ecsStates),
+        datasets: [{ label: "ECS Services", data: Object.values(ecsStates) }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+      }
+    }));
+
+    function formatRelativeTime(isoString) {
+      const scanDate = new Date(isoString);
+      const seconds = Math.max(0, Math.floor((Date.now() - scanDate.getTime()) / 1000));
+      if (seconds < 60) return "Last scan: just now";
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `Last scan: ${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `Last scan: ${hours} hour${hours === 1 ? "" : "s"} ago`;
+      const days = Math.floor(hours / 24);
+      return `Last scan: ${days} day${days === 1 ? "" : "s"} ago`;
+    }
+
+    const lastScanEl = document.getElementById("last-scan");
+    lastScanEl.textContent = formatRelativeTime(scanData.last_scan);
+    lastScanEl.title = scanData.last_scan;
+
+    const regionForm = document.getElementById("region-form");
+    const refreshButton = document.getElementById("refresh-btn");
+    const loading = document.getElementById("loading");
+    regionForm.addEventListener("submit", () => {
+      loading.classList.remove("hidden");
+      refreshButton.disabled = true;
+      refreshButton.textContent = "Scanning...";
+    });
+
+    if (window.lucide && typeof lucide.createIcons === "function") {
+      lucide.createIcons();
+    }
+  </script>
+</body>
+</html>
