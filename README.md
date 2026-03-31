@@ -9,7 +9,7 @@ This project was built to understand AWS services deeply while preparing for AWS
 ## Preview
 
 <p align="center">
-  <img src="/assets/aws-service-scan.png" width="800"/>
+  <img src="./static/aws-service-scan.png" width="800"/>
 </p>
 
 ## Features
