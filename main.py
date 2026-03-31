@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import boto3
 from fastapi import FastAPI, Request
@@ -98,6 +99,28 @@ def build_scan_payload(region: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+def get_all_regions() -> List[str]:
+    try:
+        ec2 = boto3.client("ec2", region_name="us-east-1")
+        regions = ec2.describe_regions()["Regions"]
+        return [r["RegionName"] for r in regions]
+    except Exception:
+        return [get_default_region()]
+
+
+def scan_all_regions() -> List[Dict[str, Any]]:
+    regions = get_all_regions()
+
+    def scan(region: str) -> Dict[str, Any]:
+        try:
+            return build_scan_payload(region)
+        except Exception as exc:
+            return {"region": region, "error": str(exc)}
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        return list(executor.map(scan, regions))
+
+
 @app.get("/")
 def dashboard(request: Request, region: Optional[str] = None):
     payload = build_scan_payload(region)
@@ -112,6 +135,12 @@ def dashboard(request: Request, region: Optional[str] = None):
 def api_scan(region: Optional[str] = None):
     payload = build_scan_payload(region)
     return JSONResponse(content=payload)
+
+
+@app.get("/api/scan-all")
+def api_scan_all():
+    return JSONResponse(content=scan_all_regions())
+
 
 @app.get("/health")
 def health():
