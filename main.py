@@ -112,3 +112,7 @@ def dashboard(request: Request, region: Optional[str] = None):
 def api_scan(region: Optional[str] = None):
     payload = build_scan_payload(region)
     return JSONResponse(content=payload)
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
