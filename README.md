@@ -6,6 +6,12 @@ This project was built to understand AWS services deeply while preparing for AWS
 
 ---
 
+## Preview
+
+<p align="center">
+  <img src="assets/aws-service-scan.png" width="800"/>
+</p>
+
 ## Features
 
 * Scan AWS services in real-time using boto3
